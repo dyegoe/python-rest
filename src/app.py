@@ -19,7 +19,7 @@ api = Api(app)
 
 class Health(Resource):
     def get(self):
-        return {'StatusCode': '200', 'Status': 'Healthy'}
+        return {'StatusCode': '200', 'Status': 'Healthy', 'Hostname': getenv('HOSTNAME')}
 
 
 class Users(Resource):
@@ -38,7 +38,7 @@ class Users(Resource):
                 }
                 users.append(i)
 
-            return {'StatusCode': '200', 'Users': users}
+            return {'StatusCode': '200', 'Hostname': getenv('HOSTNAME'), 'Users': users}
 
         except Exception as e:
             return {'error': str(e)}
