@@ -1,69 +1,106 @@
 from os import getenv
-from flask import Flask
+from flask import Flask, json, request
 from flask_restful import Resource, Api
-from flaskext.mysql import MySQL
+from flask_sqlalchemy import SQLAlchemy
+from socket import gethostname
+import datetime
 
-mysql = MySQL()
 app = Flask(__name__)
 
-app.config['MYSQL_DATABASE_USER'] = getenv('MYSQL_DATABASE_USER', 'root')
-app.config['MYSQL_DATABASE_PASSWORD'] = getenv('MYSQL_DATABASE_PASSWORD', 'password')
-app.config['MYSQL_DATABASE_DB'] = getenv('MYSQL_DATABASE_DB', 'db')
-app.config['MYSQL_DATABASE_HOST'] = getenv('MYSQL_DATABASE_HOST', 'localhost')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{db_user}:{db_password}@{db_host}:5432/{db_name}'.format(
+    db_user=getenv('DB_USER', 'db_user'),
+    db_password=getenv('DB_PASSWORD', 'db_password'),
+    db_host=getenv('DB_HOST', '172.17.0.2'),
+    db_name=getenv('DB_NAME', 'db_name')
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-print("[INFO] MYSQL_DATABASE_USER = {0}".format(app.config['MYSQL_DATABASE_USER']))
-print("[INFO] MYSQL_DATABASE_PASSWORD = {0}".format(app.config['MYSQL_DATABASE_PASSWORD']))
-print("[INFO] MYSQL_DATABASE_DB = {0}".format(app.config['MYSQL_DATABASE_DB']))
-print("[INFO] MYSQL_DATABASE_HOST = {0}".format(app.config['MYSQL_DATABASE_HOST']))
-print("[INFO] HOSTNAME = {0}".format(getenv('HOSTNAME')))
-
-mysql.init_app(app)
+print('[INFO] SQLALCHEMY_DATABASE_URI = {0}'.format(app.config['SQLALCHEMY_DATABASE_URI']))
+print('[INFO] HOSTNAME = {0}'.format(gethostname()))
 
 api = Api(app)
 
 
-class Home(Resource):
-    def get(self):
-        return {'Hostname': getenv('HOSTNAME')}, 200
+class DbNotes(db.Model):
+    __tablename__ = 'notes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    note = db.Column(db.String(140), unique=False, nullable=False)
+    creation = db.Column(db.DateTime, unique=False, nullable=False)
+    update = db.Column(db.DateTime, unique=False, nullable=False)
+
+    def __init__(self, note, creation, update):
+        self.note = note
+        self.creation = creation
+        self.update = update
+    #
+    # def __repr__(self):
+    #     return '%s(%s)' % (self.__class__.__name__, {
+    #         column: value
+    #         for column, value in self._to_dict().items()
+    #     })
+    #
+    # def json(self):
+    #     return {
+    #         column: value if not isinstance(value, datetime.date) else value.strftime('%Y-%m-%d')
+    #         for column, value in self._to_dict().items()
+    #     }
 
 
-class Health(Resource):
+class ApiHome(Resource):
     def get(self):
         try:
-            conn = mysql.connect()
-            cursor = conn.cursor()
-            conn.close()
-            return {'StatusCode': '200', 'Status': 'Healthy', 'Hostname': getenv('HOSTNAME')}, 200
-
+            count_registers = DbNotes.query.filter_by().count()
+            return {'status_code': '200', 'hostname': gethostname(),
+                    'result': count_registers}, 200
         except Exception as e:
-            return {'StatusCode': '500', 'error': str(e)}, 500
+            return {'status_code': '501', 'hostname': gethostname(), 'error': str(e)}, 500
 
 
-class Users(Resource):
+class ApiHealth(Resource):
     def get(self):
         try:
-            conn = mysql.connect()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users")
-            data = cursor.fetchall()
-
-            users = [];
-            for item in data:
-                i = {
-                    'Name': item[0],
-                    'Age': item[1]
-                }
-                users.append(i)
-            conn.close()
-            return {'StatusCode': '200', 'Hostname': getenv('HOSTNAME'), 'Users': users}, 200
-
+            count_registers = DbNotes.query.filter_by().count()
+            return {'status_code': '200', 'hostname': gethostname(),
+                    'result': count_registers}, 200
         except Exception as e:
-            return {'StatusCode': '500', 'error': str(e)}, 500
+            return {'status_code': '501', 'hostname': gethostname(), 'error': str(e)}, 500
 
 
-api.add_resource(Home, '/')
-api.add_resource(Health, '/health')
-api.add_resource(Users, '/users')
+class ApiList(Resource):
+    def get(self):
+        try:
+            result = DbNotes.query.filter().all()
+            return {'status_code': '200', 'hostname': gethostname(),
+                    'result': 'none'}, 200
+        except Exception as e:
+            return {'status_code': '501', 'hostname': gethostname(), 'error': str(e)}, 500
+
+
+class ApiCreate(Resource):
+    def post(self):
+        try:
+            if request.headers['Content-Type'] == 'application/json':
+                if 'note' in request.json:
+                    insert = DbNotes(request.json['note'], datetime.datetime.now(), datetime.datetime.now())
+                    db.session.add(insert)
+                    db.session.commit()
+                    return {'status_code': '200', 'hostname': gethostname(),
+                            'Result': request.json['note']}, 200
+                else:
+                    raise Exception('Cannot find "notes" on the json')
+            else:
+                raise Exception('Content-Type {} not supported'.format(request.headers['Content-Type']))
+        except Exception as e:
+            return {'status_code': '501', 'hostname': gethostname(), 'error': str(e)}, 500
+
+
+api.add_resource(ApiHome, '/notes/v1')
+api.add_resource(ApiHealth, '/notes/v1/health')
+api.add_resource(ApiList, '/notes/v1/list')
+api.add_resource(ApiCreate, '/notes/v1/create')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=False)
+    db.create_all()
+    app.run(host='0.0.0.0', debug=True)
